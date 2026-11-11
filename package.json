@@ -1,0 +1,11 @@
+{
+  "name": "secret-hitlet",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Secret Hitler online en el navegador, P2P con WebRTC (PeerJS). Proyecto no comercial.",
+  "scripts": {
+    "start": "node serve.js",
+    "test": "node --test"
+  }
+}
