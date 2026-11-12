@@ -58,6 +58,10 @@ test('partidas completas jugadas desde la interfaz del anfitrión', async () => 
   });
   await tick(10);
   assert.match(html(), /Jugadores \(3\/10\)/);
+  assert.match(html(), /class="avatar-grid"|class="avatar sm"/, 'la sala muestra avatares');
+  click('toggleAvatars');
+  click('pickAvatar', { v: 'detective' });
+  assert.match(html(), /aria-label="Detective"/, 'el anfitrión puede cambiar su avatar');
   assert.ok(html().includes('&lt;b&gt;Beto&lt;/b&gt;'), 'los nombres se escapan');
   assert.ok(!html().includes('<b>Beto</b>'));
 
@@ -106,6 +110,7 @@ test('partidas completas jugadas desde la interfaz del anfitrión', async () => 
       await tick(1);
     }
     assert.match(html(), /Has ganado|Has perdido/);
+    assert.match(html(), /class="seat-face reveal-face/, 'al final se revelan los retratos de rol');
     assert.match(html(), /Otra partida/);
     assert.ok(sawVoteCount, 'se muestra el recuento de votos con cartas');
     assert.ok(sawPolicy, 'se anima cada ley promulgada');

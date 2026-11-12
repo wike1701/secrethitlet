@@ -5,6 +5,7 @@
 import { HostRoom, randomId, cleanName } from './room.js';
 import { startHost, joinHost, makeCode, normalizeCode, isValidCode, CODE_LEN } from './net.js';
 import { POWER_NAMES, MIN_PLAYERS, MAX_PLAYERS } from './game.js';
+import { AVATAR_IDS, AVATAR_NAMES, avatarSvg, rolePortrait, isAvatar, ROLE_TITLES } from './avatars.js';
 
 const app = document.getElementById('app');
 const layer = document.getElementById('layer'); // no existe en las pruebas: entonces va dentro de #app
@@ -21,12 +22,18 @@ function store(getStorage) {
 const local = store(() => localStorage);
 const session = store(() => sessionStorage);
 
+function initialAvatar() {
+  const saved = local.get('sh-avatar');
+  return isAvatar(saved) ? saved : AVATAR_IDS[Math.floor(Math.random() * AVATAR_IDS.length)];
+}
+
 const ui = {
   screen: 'home', // home | connecting | lobby | game
   status: '',
   error: '',
   toast: '',
-  form: { name: local.get('sh-name') ?? '', code: normalizeCode(params.get('sala')) },
+  form: { name: local.get('sh-name') ?? '', code: normalizeCode(params.get('sala')), avatar: initialAvatar() },
+  avatarOpen: false, // selector de avatar desplegado en la sala
   code: null,
   isHost: false,
   you: null,
@@ -92,7 +99,18 @@ const voteCard = (ja, extra = '') => `<span class="vcard ${ja ? 'ja' : 'nein'} $
 const cardBack = (extra = '') => `<span class="cardback ${extra}"></span>`;
 
 function roleCardHtml(role) {
-  return `<span class="rcard ${role}">${icon(ROLE_ICON[role])}<small>Rol secreto</small><b>${ROLE[role]}</b></span>`;
+  return `<span class="rcard role-card ${role}">${rolePortrait(role)}<small>${ROLE_TITLES[role]}</small><b>${ROLE[role]}</b></span>`;
+}
+
+// Avatar de un jugador (los avatares viven en la sala, no en la lógica del juego).
+const avatarOf = (id) => ui.room?.players.find((p) => p.id === id)?.avatar ?? id;
+const avatarFor = (id, cls = '') => avatarSvg(avatarOf(id), cls);
+
+function avatarPicker() {
+  return `<div class="avatar-grid" role="group" aria-label="Elige tu avatar">${AVATAR_IDS.map((id) => {
+    const sel = id === ui.form.avatar;
+    return `<button class="av-pick ${sel ? 'sel' : ''}" data-a="pickAvatar" data-v="${id}" aria-pressed="${sel}" title="${AVATAR_NAMES[id]}">${avatarSvg(id)}</button>`;
+  }).join('')}</div>`;
 }
 function partyCardHtml(role) {
   const party = partyOf(role);
@@ -127,7 +145,7 @@ function hostGame(saved) {
   };
   room = saved
     ? new HostRoom(hooks, saved.room)
-    : new HostRoom({ ...hooks, hostName: name, hostToken: randomId(24), dev: DEV });
+    : new HostRoom({ ...hooks, hostName: name, hostToken: randomId(24), hostAvatar: ui.form.avatar, dev: DEV });
   Object.assign(ui, { isHost: true, code, you: room.hostId, status: 'connecting', error: '' });
   session.set('sh-host-active', true);
   net = startHost(code, {
@@ -163,7 +181,7 @@ function joinGame(codeIn, nameIn) {
   const token = myToken();
   net = joinHost(code, {
     onStatus: (s) => { if (s !== ui.status) { ui.status = s; render(); } },
-    onOpen: () => net?.send({ t: 'hello', name, token }),
+    onOpen: () => net?.send({ t: 'hello', name, token, avatar: ui.form.avatar }),
     onData: onClientMessage,
     onFatal: (msg) => { leave(); showError(msg); },
   });
@@ -318,6 +336,18 @@ const actions = {
   veto: () => doAct({ type: 'chancellorDiscard', veto: true }),
   vetoResp: (el) => doAct({ type: 'vetoResponse', agree: el.dataset.v === '1' }),
   ack: () => doAct({ type: 'ack' }),
+  pickAvatar: (el) => {
+    if (!isAvatar(el.dataset.v)) return;
+    ui.form.avatar = el.dataset.v;
+    local.set('sh-avatar', ui.form.avatar);
+    if (ui.screen !== 'home') {
+      ui.avatarOpen = false;
+      if (ui.isHost) room?.setAvatar(room.hostId, ui.form.avatar);
+      else net?.send({ t: 'avatar', avatar: ui.form.avatar });
+    }
+    render();
+  },
+  toggleAvatars: () => { ui.avatarOpen = !ui.avatarOpen; render(); },
   openSeal: () => {
     const o = ui.overlays[0];
     if (o?.kind === 'role') { o.stage = 'open'; render(); }
@@ -399,7 +429,12 @@ function viewHome() {
     </header>
     ${ui.error ? `<p class="error" role="alert">${esc(ui.error)}</p>` : ''}
     <section class="panel">
-      <label>Tu nombre<input id="name" maxlength="20" autocomplete="nickname" value="${esc(ui.form.name)}" placeholder="Cómo te verán los demás"></label>
+      <div class="who">
+        ${avatarSvg(ui.form.avatar, 'me-avatar')}
+        <label>Tu nombre<input id="name" maxlength="20" autocomplete="nickname" value="${esc(ui.form.name)}" placeholder="Cómo te verán los demás"></label>
+      </div>
+      <p class="label">Elige tu avatar</p>
+      ${avatarPicker()}
       ${invited ? joinCard + '<p class="or">o</p>' + createCard : createCard + '<p class="or">o únete a una</p>' + joinCard}
     </section>
     ${saved ? `<section class="panel"><p>Tienes una partida guardada como anfitrión (sala <b>${esc(saved.code)}</b>).</p>
@@ -434,10 +469,11 @@ function viewLobby() {
   const missing = MIN_PLAYERS - n;
   const list = r.players.map((p) => `
     <li class="${p.connected ? '' : 'off'}">
-      <span>${esc(p.name)}${p.id === ui.you ? ' <i>(tú)</i>' : ''}</span>
+      <span class="who-row">${avatarSvg(p.avatar, 'sm')}<span>${esc(p.name)}${p.id === ui.you ? ' <i>(tú)</i>' : ''}</span></span>
       <span class="tags">
         ${p.host ? '<b class="tag">Anfitrión</b>' : ''}${p.bot ? '<b class="tag">Bot</b>' : ''}
         ${p.connected ? '' : '<b class="tag off">Desconectado</b>'}
+        ${p.id === ui.you ? `<button class="ghost small" data-a="toggleAvatars" aria-expanded="${ui.avatarOpen}">Cambiar avatar</button>` : ''}
         ${ui.isHost && !p.host ? `<button class="ghost small" data-a="kick" data-id="${esc(p.id)}">Sacar</button>` : ''}
       </span>
     </li>`).join('');
@@ -456,6 +492,7 @@ function viewLobby() {
     <section class="panel">
       <h2>Jugadores (${n}/${MAX_PLAYERS})</h2>
       <ul class="lobby-list">${list}</ul>
+      ${ui.avatarOpen ? avatarPicker() : ''}
       ${ui.isHost ? hostControls : '<p class="hint">Esperando a que el anfitrión empiece la partida…</p>'}
     </section>
     ${rulesBox()}`;
@@ -517,7 +554,7 @@ function panel(title, body, cls = '') {
 const wait = (text) => `<section class="panel action waiting"><p>${text}</p></section>`;
 
 function playerPicker(ids, kind, label, ico = '') {
-  const picks = ids.map((id) => `<button class="pick ${ui.sel === id ? 'sel' : ''}" data-a="select" data-v="${esc(id)}">${ico ? icon(ico) : ''}<span>${nameOf(id)}</span></button>`).join('');
+  const picks = ids.map((id) => `<button class="pick ${ui.sel === id ? 'sel' : ''}" data-a="select" data-v="${esc(id)}">${avatarFor(id, 'sm')}<span>${nameOf(id)}</span></button>`).join('');
   return `<div class="picks">${picks}</div><button class="primary" data-a="confirm" data-kind="${kind}" ${ui.sel == null ? 'disabled' : ''}>${label}</button>`;
 }
 
@@ -640,17 +677,24 @@ function seats(g) {
     if (g.phase === 'vote' && p.id === g.nomineeId) marks.push('<b class="placard nom">Candidato</b>');
     let vote = '';
     if (g.phase === 'vote') vote = g.voted.includes(p.id) ? cardBack('mini') : '';
-    else if (lv && p.id in lv.votes) vote = voteCard(lv.votes[p.id], 'mini');
+    else if (lv && p.id in lv.votes && !over) vote = voteCard(lv.votes[p.id], 'mini');
     const tags = [];
     if (g.confirmedNotHitler.includes(p.id) && !over) tags.push('<b class="tag">No es Hitler</b>');
     // Los roles ajenos que conoces solo se ven con tu rol desplegado (por si alguien mira tu pantalla).
     if (p.role && (over || (ui.roleOpen && p.id !== g.me))) tags.push(`<b class="tag role-${p.role}">${ROLE[p.role]}</b>`);
     if (conn[p.id] === false) tags.push('<b class="tag off">Desconectado</b>');
     if (!p.alive) tags.push('<b class="tag dead">Ejecutado</b>');
+    // Al terminar, cada asiento muestra el retrato de su rol (con el avatar del jugador en la esquina).
+    const face = over && p.role
+      ? `<span class="seat-face reveal-face ${p.role}">${rolePortrait(p.role)}${avatarFor(p.id, 'badge')}</span>`
+      : `<span class="seat-face">${avatarFor(p.id)}</span>`;
     return `<li class="seat ${p.alive ? '' : 'dead'} ${p.id === g.me ? 'me' : ''}">
-      <div class="seat-top"><span class="seat-name">${esc(p.name)}${p.id === g.me ? ' <i>(tú)</i>' : ''}</span>${vote}</div>
-      ${marks.length ? `<div class="marks">${marks.join('')}</div>` : ''}
-      ${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}
+      ${face}
+      <div class="seat-body">
+        <div class="seat-top"><span class="seat-name">${esc(p.name)}${p.id === g.me ? ' <i>(tú)</i>' : ''}</span>${vote}</div>
+        ${marks.length ? `<div class="marks">${marks.join('')}</div>` : ''}
+        ${tags.length ? `<div class="tags">${tags.join('')}</div>` : ''}
+      </div>
     </li>`;
   }).join('');
   const caption = lv && g.phase !== 'vote'
@@ -721,7 +765,7 @@ function overlayHtml(o) {
     const voters = g.players.filter((p) => p.id in v.votes);
     const ja = voters.filter((p) => v.votes[p.id]).length;
     const cards = voters.map((p, i) => `
-      <li><span class="flip" style="--d:${i}"><span class="flip-in"><span class="face back">${cardBack()}</span><span class="face front">${voteCard(v.votes[p.id])}</span></span></span><span>${esc(p.name)}</span></li>`).join('');
+      <li><span class="flip" style="--d:${i}"><span class="flip-in"><span class="face back">${cardBack()}</span><span class="face front">${voteCard(v.votes[p.id])}</span></span></span><span class="who-row">${avatarFor(p.id, 'xs')}<span>${esc(p.name)}</span></span></li>`).join('');
     return `
       <div class="ov ov-vote" role="status" aria-live="polite">
         <div class="ov-card">
@@ -746,7 +790,7 @@ function overlayHtml(o) {
   if (o.kind === 'execute') {
     return `
       <div class="ov ov-exec" role="status" aria-live="polite">
-        ${icon('target', 'exec-ico')}
+        <span class="exec-face">${avatarFor(o.id)}${icon('target', 'exec-ico')}</span>
         <h2 class="ov-title">${nameOf(o.id)} ha sido ejecutado</h2>
         <p class="ov-text">Ya no puede hablar ni votar. Su rol sigue en secreto.</p>
         <button class="ghost small" data-a="dismiss">Cerrar</button>

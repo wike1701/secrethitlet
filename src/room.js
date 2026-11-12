@@ -2,6 +2,7 @@
 // recibe mensajes con handle(connId, msg) y responde con las funciones send/close que le pasen.
 import { createGame, act, viewFor, MIN_PLAYERS, MAX_PLAYERS } from './game.js';
 import { botAction } from './bots.js';
+import { AVATAR_IDS, isAvatar, defaultAvatar } from './avatars.js';
 
 const NAME_MAX = 20;
 const ID_CHARS = 'abcdefghijkmnpqrstuvwxyz23456789';
@@ -31,7 +32,7 @@ export class HostRoom {
    * @param {(connId) => void} [o.close]  cierra una conexión
    * @param {(room) => void} [o.onChange] tras cada cambio (guardar y repintar)
    * @param {(msg) => void} [o.onHostMessage] mensajes para el jugador anfitrión
-   * @param {string} [o.hostName]  @param {string} [o.hostToken]  @param {boolean} [o.dev]
+   * @param {string} [o.hostName]  @param {string} [o.hostToken]  @param {string} [o.hostAvatar]  @param {boolean} [o.dev]
    * @param {number} [o.seed]  solo tests: semillas reproducibles
    * @param {object} [saved]   resultado de serialize() para reanudar
    */
@@ -47,13 +48,13 @@ export class HostRoom {
       this.dev = !!saved.dev;
       this.hostId = saved.hostId;
       this.game = saved.game;
-      this.players = saved.players.map((p) => ({ ...p, connected: p.host || p.bot }));
+      this.players = saved.players.map((p) => ({ ...p, avatar: isAvatar(p.avatar) ? p.avatar : defaultAvatar(p.id), connected: p.host || p.bot }));
     } else {
       this.code = o.code;
       this.dev = !!o.dev;
       this.players = [];
       this.game = null;
-      this.hostId = this._addPlayer(o.hostName, o.hostToken, { host: true }).id;
+      this.hostId = this._addPlayer(o.hostName, o.hostToken, { host: true, avatar: o.hostAvatar }).id;
     }
   }
 
@@ -77,7 +78,7 @@ export class HostRoom {
         hostId: this.hostId,
         dev: this.dev,
         started: !!this.game,
-        players: this.players.map(({ id, name, connected, bot, host }) => ({ id, name, connected, bot, host })),
+        players: this.players.map(({ id, name, avatar, connected, bot, host }) => ({ id, name, avatar, connected, bot, host })),
       },
       game: inGame ? viewFor(this.game, pid) : null,
     };
@@ -90,6 +91,7 @@ export class HostRoom {
     const pid = this.conns.get(connId);
     if (!pid) return this.sendFn(connId, err('Primero tienes que unirte a la sala'));
     if (msg.t === 'act') return this.perform(pid, msg.action);
+    if (msg.t === 'avatar') return this.setAvatar(pid, msg.avatar);
     if (msg.t === 'leave') return this._leave(pid, connId);
   }
 
@@ -105,6 +107,15 @@ export class HostRoom {
 
   hostAct(action) {
     this.perform(this.hostId, action);
+  }
+
+  // Cambia el avatar de un jugador (se puede en la sala de espera y durante la partida).
+  setAvatar(pid, avatar) {
+    const p = this._player(pid);
+    if (!p || !isAvatar(avatar)) return this._toPlayer(pid, err('Avatar no válido'));
+    if (p.avatar === avatar) return;
+    p.avatar = avatar;
+    this._changed();
   }
 
   perform(pid, action) {
@@ -150,8 +161,20 @@ export class HostRoom {
       nm = `${base.slice(0, NAME_MAX - 3)} ${i}`;
     }
     const p = { id: randomId(10), token: token ?? null, name: nm, connected: true, bot: false, host: false, ...extra };
+    if (!isAvatar(p.avatar)) p.avatar = this._freeAvatar(p.id);
     this.players.push(p);
     return p;
+  }
+
+  // Primer avatar que nadie usa (o uno estable según el id si están todos cogidos).
+  _freeAvatar(seed) {
+    const used = new Set(this.players.map((p) => p.avatar));
+    const start = AVATAR_IDS.indexOf(defaultAvatar(seed));
+    for (let i = 0; i < AVATAR_IDS.length; i++) {
+      const a = AVATAR_IDS[(start + i) % AVATAR_IDS.length];
+      if (!used.has(a)) return a;
+    }
+    return defaultAvatar(seed);
   }
 
   _hello(connId, msg) {
@@ -166,8 +189,9 @@ export class HostRoom {
     } else {
       if (this.game) return this._reject(connId, 'La partida ya ha empezado');
       if (this.players.length >= MAX_PLAYERS) return this._reject(connId, 'La sala está llena');
-      p = this._addPlayer(msg.name, token);
+      p = this._addPlayer(msg.name, token, { avatar: msg.avatar });
     }
+    if (isAvatar(msg.avatar)) p.avatar = msg.avatar;
     p.connected = true;
     this.conns.set(connId, p.id);
     this.sendFn(connId, { t: 'welcome', you: p.id, code: this.code });

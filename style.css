@@ -372,7 +372,9 @@ footer { text-align: center; color: var(--muted); font-size: .8rem; margin-top: 
 .ov-policy .ov-title { animation: fadeIn .4s ease both; animation-delay: .9s; }
 .ov-policy.liberal .ov-title { color: #9cc9de; }
 .ov-policy.fascist .ov-title { color: #f09a85; }
-.exec-ico { width: 90px; height: 90px; color: #f09a85; animation: aim .9s ease both; }
+.exec-face { position: relative; display: grid; place-items: center; }
+.exec-face .avatar { width: 112px; height: 112px; filter: grayscale(.6) brightness(.85); box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+.exec-ico { position: absolute; width: 132px; height: 132px; color: #f09a85; stroke-width: 2; animation: aim .9s ease both; }
 @keyframes aim { from { transform: scale(1.8) rotate(-45deg); opacity: 0; } }
 
 /* Animaciones de mesa */
@@ -387,6 +389,40 @@ footer { text-align: center; color: var(--muted); font-size: .8rem; margin-top: 
   max-width: calc(100% - 32px); background: #22392f; border: 1px solid var(--brass);
   padding: 10px 16px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.45);
 }
+
+/* ---------- Avatares y retratos ---------- */
+.avatar { display: block; flex: none; width: 44px; height: 44px; border-radius: 50%; background: #0006; }
+.avatar.sm { width: 34px; height: 34px; }
+.avatar.xs { width: 20px; height: 20px; }
+.avatar.me-avatar { width: 64px; height: 64px; box-shadow: 0 0 0 2px var(--brass), 0 6px 14px rgba(0,0,0,.4); }
+.who { display: flex; gap: 14px; align-items: flex-end; }
+.who label { flex: 1; margin: 0; }
+.label { font-weight: 600; margin: 16px 0 6px; }
+.avatar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; margin-top: 6px; }
+.av-pick {
+  padding: 3px; min-height: 0; aspect-ratio: 1; border-radius: 50%;
+  background: transparent; border: 2px solid transparent; transition: transform .12s ease, border-color .12s ease;
+}
+.av-pick .avatar { width: 100%; height: 100%; }
+.av-pick.sel { border-color: var(--brass-2); transform: scale(1.06); }
+.av-pick:hover:not(.sel) { border-color: #3a5e51; }
+.lobby-list .avatar-grid, .panel > .avatar-grid { margin-top: 12px; }
+.who-row { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.pick { justify-content: flex-start; text-align: left; padding: 8px 10px; }
+
+.seat { display: flex; gap: 10px; align-items: flex-start; }
+.seat-body { flex: 1; min-width: 0; }
+.seat-face { position: relative; flex: none; }
+.seat.dead .seat-face { filter: grayscale(1); }
+.reveal-face .portrait { display: block; width: 50px; height: 50px; border-radius: 8px; animation: deal .5s ease both; }
+.reveal-face.liberal .portrait { box-shadow: 0 0 0 2px var(--lib); }
+.reveal-face.fascist .portrait, .reveal-face.hitler .portrait { box-shadow: 0 0 0 2px var(--fas); }
+.reveal-face .avatar.badge { position: absolute; right: -6px; bottom: -6px; width: 24px; height: 24px; box-shadow: 0 0 0 2px var(--felt-2); }
+
+.rcard.role-card { justify-content: flex-start; padding-top: 9%; }
+.rcard.role-card .portrait { display: block; width: 76%; height: auto; border-radius: 7%; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+.rcard.role-card small { margin-top: 6%; font-size: 8cqw; }
+.rcard.role-card b { margin-top: 2%; font-size: 15cqw; }
 
 @media (min-width: 760px) {
   #app { max-width: 820px; }

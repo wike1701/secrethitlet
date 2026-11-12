@@ -39,6 +39,7 @@ Después: el anfitrión pulsa **Crear partida**, comparte el enlace o el código
 index.html, style.css
 src/game.js    Reglas puras (sin red ni DOM). Estado en JSON, con su propio generador aleatorio.
 src/bots.js    Jugador automático al azar (pruebas y modo desarrollo).
+src/avatars.js Avatares de jugador y retratos de cada rol (SVG propio).
 src/room.js    Sala del anfitrión: jugadores, reconexiones, órdenes y vistas filtradas por jugador.
 src/net.js     Transporte PeerJS: anfitrión con id fijo según el código, latidos y reconexión.
 src/config.js  Servidores STUN/TURN.

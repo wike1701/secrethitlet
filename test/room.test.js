@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HostRoom } from '../src/room.js';
 import { botAction } from '../src/bots.js';
+import { isAvatar } from '../src/avatars.js';
 
 function setup({ dev = true, seed = 1 } = {}) {
   const inbox = new Map();
@@ -135,4 +136,35 @@ test('partidas completas con humanos y bots, guardando y reanudando a mitad', ()
     e.room.hostAct({ type: 'newGame' });
     assert.equal(e.room.game.phase, 'nominate');
   }
+});
+
+test('avatares: se respeta el elegido, se corrige el inválido y se puede cambiar', () => {
+  const e = setup();
+  e.join('c1', 'Beto', 'token-beto-1');
+  e.room.handle('c2', { t: 'hello', name: 'Carla', token: 'token-carla-1', avatar: 'detective' });
+  e.room.handle('c3', { t: 'hello', name: 'Dani', token: 'token-dani-1', avatar: '<script>' });
+  const byName = (n) => e.last('c1').room.players.find((p) => p.name === n);
+  assert.equal(byName('Carla').avatar, 'detective');
+  assert.ok(isAvatar(byName('Dani').avatar), 'un avatar inválido se sustituye por uno válido');
+  assert.ok(isAvatar(byName('Ana').avatar) && isAvatar(byName('Beto').avatar));
+  e.room.handle('c1', { t: 'avatar', avatar: 'poeta' });
+  assert.equal(byName('Beto').avatar, 'poeta');
+  e.room.handle('c1', { t: 'avatar', avatar: 'no-existe' });
+  assert.equal(byName('Beto').avatar, 'poeta');
+  assert.equal(e.errors('c1').at(-1).message, 'Avatar no válido');
+  // Al reconectar con otro avatar elegido, se actualiza.
+  e.room.disconnect('c2');
+  e.room.handle('c2b', { t: 'hello', name: 'Carla', token: 'token-carla-1', avatar: 'actriz' });
+  assert.equal(byName('Carla').avatar, 'actriz');
+});
+
+test('los bots reciben avatares distintos y las partidas guardadas sin avatar se reparan', () => {
+  const e = setup();
+  for (let i = 0; i < 9; i++) e.room.hostAct({ type: 'addBot' });
+  const avatars = e.room.players.map((p) => p.avatar);
+  assert.equal(new Set(avatars).size, avatars.length, 'nadie repite avatar mientras queden libres');
+  const saved = JSON.parse(JSON.stringify(e.room.serialize()));
+  for (const p of saved.players) delete p.avatar;
+  const r2 = new HostRoom(e.opts, saved);
+  assert.ok(r2.players.every((p) => isAvatar(p.avatar)));
 });
