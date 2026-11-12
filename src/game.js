@@ -71,6 +71,7 @@ export function createGame(players, opts = {}) {
     lastChancellorId: null,
     votes: {},
     lastVote: null,
+    voteSeq: 0,
     tracker: 0,
     liberal: 0,
     fascist: 0,
@@ -203,7 +204,9 @@ function resolveVote(s) {
   const ja = alive.filter((p) => votes[p.id]).length;
   const nein = alive.length - ja;
   const passed = ja > nein;
-  s.lastVote = { presidentId: president(s).id, nomineeId: s.nomineeId, votes, passed };
+  // `id` permite a la interfaz detectar cada votación nueva (para animar el recuento).
+  s.voteSeq = (s.voteSeq ?? 0) + 1;
+  s.lastVote = { id: s.voteSeq, presidentId: president(s).id, nomineeId: s.nomineeId, votes, passed };
   log(s, 'Votos: ' + alive.map((p) => `${p.name} ${votes[p.id] ? 'Ja' : 'Nein'}`).join(' · '));
   if (!passed) {
     log(s, `Gobierno rechazado (${ja}-${nein}).`);

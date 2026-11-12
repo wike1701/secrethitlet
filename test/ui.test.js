@@ -70,14 +70,29 @@ test('partidas completas jugadas desde la interfaz del anfitrión', async () => 
     assert.match(html(), /Leyes liberales/);
     assert.match(html(), /Ver mi rol en secreto/, 'cada partida empieza con el rol oculto');
     assert.ok(!/tag role-/.test(html()), 'con el rol oculto no se ve ningún rol en la lista');
+    // Al empezar aparece el sobre cerrado; al abrirlo se revelan las cartas de afiliación y rol.
+    assert.match(html(), /data-a="openSeal"/, 'aparece el sobre con el rol');
+    assert.ok(!/rcard/.test(html()), 'el sobre cerrado no enseña el rol');
+    click('openSeal');
+    assert.match(html(), /class="rcard party/, 'al abrir el sobre se ve la afiliación');
+    click('dismiss');
+    assert.ok(!/data-a="openSeal"|rcard party/.test(html()), 'al cerrarlo el rol vuelve a ocultarse');
     click('toggleRole');
     assert.match(html(), /Tu rol secreto/);
 
     let steps = 0;
+    let sawVoteCount = false;
+    let sawPolicy = false;
     while (!html().includes('Ganan los')) {
       assert.ok(++steps < 4000, 'la partida no termina');
-      if (has('vote')) click('vote', { v: Math.random() < 0.7 ? '1' : '0' });
-      else if (has('select')) {
+      if (html().includes('ov-vote')) sawVoteCount = true;
+      if (html().includes('ov-policy')) sawPolicy = true;
+      if (has('pickVote')) {
+        const v = Math.random() < 0.7 ? '1' : '0';
+        click('pickVote', { v });
+        assert.match(html(), /data-a="vote" data-v="[01]"(?! disabled)/, 'tras elegir carta se puede votar');
+        click('vote', { v });
+      } else if (has('select')) {
         const vals = attrs('v', 'select');
         click('select', { v: vals[Math.floor(Math.random() * vals.length)] });
         assert.ok(!/data-a="confirm"[^>]*disabled/.test(html()), 'el botón de confirmar se activa');
@@ -92,6 +107,8 @@ test('partidas completas jugadas desde la interfaz del anfitrión', async () => 
     }
     assert.match(html(), /Has ganado|Has perdido/);
     assert.match(html(), /Otra partida/);
+    assert.ok(sawVoteCount, 'se muestra el recuento de votos con cartas');
+    assert.ok(sawPolicy, 'se anima cada ley promulgada');
     for (const c of clients) {
       assert.deepEqual(c.errors, [], `errores del cliente ${c.name}`);
       assert.equal(c.last.game.phase, 'gameover');
