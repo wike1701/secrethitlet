@@ -6,6 +6,8 @@ import { HostRoom, randomId, cleanName } from './room.js';
 import { startHost, joinHost, makeCode, normalizeCode, isValidCode, CODE_LEN } from './net.js';
 import { POWER_NAMES, MIN_PLAYERS, MAX_PLAYERS } from './game.js';
 import { AVATAR_IDS, AVATAR_NAMES, avatarSvg, rolePortrait, isAvatar, ROLE_TITLES } from './avatars.js';
+import { detectEvents } from './fx.js';
+import { play, unlock, isMuted, toggleMute } from './sound.js';
 
 const app = document.getElementById('app');
 const layer = document.getElementById('layer'); // no existe en las pruebas: entonces va dentro de #app
@@ -47,6 +49,7 @@ const ui = {
   overlays: [], // cola de animaciones: role | vote | policy | execute
   overlayKey: '',
   fresh: null, // ley recién colocada en el tablero (para animarla)
+  roleHeard: false, // el sonido del rol solo suena la primera vez que se abre el sobre
 };
 let net = null;
 let room = null;
@@ -70,7 +73,16 @@ const POWER_HELP = {
 };
 const POWER_BUTTON = { investigate: 'Investigar', special: 'Nombrar presidente', execute: 'Ejecutar' };
 const POWER_SHORT = { peek: 'Mirar 3 leyes', investigate: 'Investigar', special: 'Elección especial', execute: 'Ejecución' };
-const AUTO_CLOSE = { vote: 3600, policy: 2800, execute: 3000 }; // ms; el revelado de rol se cierra a mano
+const AUTO_CLOSE = { vote: 3600, policy: 2800, execute: 3000, pres: 2200, chan: 2200 }; // ms; el revelado de rol se cierra a mano
+const ROLE_SOUND = { liberal: 'roleLiberal', fascist: 'roleFascist', hitler: 'roleHitler' };
+// Sonido de cada aviso, al aparecer en pantalla (así va sincronizado con la animación).
+const OVERLAY_SOUND = {
+  vote: (o) => (o.vote.passed ? 'votePass' : 'voteFail'),
+  policy: (o) => (o.policy === 'liberal' ? 'policyLiberal' : 'policyFascist'),
+  execute: () => 'execute',
+  pres: () => 'president',
+  chan: () => 'chancellor',
+};
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -209,9 +221,14 @@ function pushOverlay(o) {
   ui.overlays.push(o);
 }
 
-function queueEvents(prev, g) {
+function queueEvents(prev, g, events) {
+  const ev = (type) => events.find((e) => e.type === type);
   const lv = g.lastVote;
   if (lv && lv.id !== prev.lastVote?.id) pushOverlay({ kind: 'vote', vote: lv });
+  if (ev('chancellor')) pushOverlay({ kind: 'chan', id: ev('chancellor').id });
+  // Sonidos sin aviso propio: llamada a votar y robar (o mirar) las 3 leyes.
+  if (ev('voteCall')) play('voteCall');
+  if (ev('draw3')) play('draw3', ev('chancellor') ? 0.4 : 0);
   // Una ley sale "del caos" si no viene de la decisión del canciller (3 fallos o veto aceptado).
   const chaos = prev.phase !== 'chancellorDiscard';
   for (const kind of ['liberal', 'fascist']) {
@@ -226,19 +243,25 @@ function queueEvents(prev, g) {
     const before = prev.players.find((x) => x.id === p.id);
     if (before?.alive && !p.alive) pushOverlay({ kind: 'execute', id: p.id });
   }
+  if (ev('president')) pushOverlay({ kind: 'pres', id: ev('president').id });
 }
 
 function applyState(m) {
   const prev = ui.game;
   const g = m.game;
+  const events = detectEvents(prev, g);
   if (g && g.phase !== 'gameover' && (!prev || prev.phase === 'gameover')) {
     // Partida nueva: todo lo secreto empieza oculto y se abre el sobre con el rol.
     ui.roleOpen = false;
     ui.logOpen = false;
+    ui.roleHeard = false;
+    ui.overHeard = false;
     ui.overlays = [];
     pushOverlay({ kind: 'role', stage: 'sealed' });
+    const first = events.find((e) => e.type === 'president');
+    if (first) pushOverlay({ kind: 'pres', id: first.id, first: true });
   } else if (g && prev) {
-    queueEvents(prev, g);
+    queueEvents(prev, g, events);
   }
   if (!g) ui.overlays = [];
   ui.room = m.room;
@@ -331,8 +354,10 @@ const actions = {
     const v = el.dataset.v || ui.voteSel;
     if (v !== '1' && v !== '0') return;
     ui.voteSel = null;
+    play('voteCast');
     doAct({ type: 'vote', vote: v === '1' });
   },
+  mute: () => { toggleMute(); render(); },
   veto: () => doAct({ type: 'chancellorDiscard', veto: true }),
   vetoResp: (el) => doAct({ type: 'vetoResponse', agree: el.dataset.v === '1' }),
   ack: () => doAct({ type: 'ack' }),
@@ -350,12 +375,18 @@ const actions = {
   toggleAvatars: () => { ui.avatarOpen = !ui.avatarOpen; render(); },
   openSeal: () => {
     const o = ui.overlays[0];
-    if (o?.kind === 'role') { o.stage = 'open'; render(); }
+    if (o?.kind !== 'role') return;
+    o.stage = 'open';
+    // Cada rol suena distinto: solo la primera vez por partida, por si alguien escucha.
+    const me = ui.game?.players.find((p) => p.id === ui.game.me);
+    if (!ui.roleHeard && me) { ui.roleHeard = true; play(ROLE_SOUND[me.role], 0.9); }
+    render();
   },
   dismiss: () => dismissOverlay(),
 };
 
 function onClick(e) {
+  unlock(); // los navegadores solo dejan sonar audio tras un gesto del usuario
   const el = e.target.closest('[data-a]');
   if (!el || el.disabled) return;
   actions[el.dataset.a]?.(el);
@@ -379,6 +410,7 @@ app.addEventListener('keydown', (e) => {
   if (e.target.id === 'name') (ui.form.code ? actions.join : actions.create)();
 });
 document.addEventListener?.('keydown', (e) => {
+  unlock();
   if (e.key === 'Escape' && ui.overlays[0] && ui.overlays[0].kind !== 'role') dismissOverlay();
 });
 
@@ -393,10 +425,20 @@ function render() {
 
 function renderLayer() {
   const o = ui.screen === 'game' && ui.game ? ui.overlays[0] ?? null : null;
-  const key = o ? `${o.n}:${o.stage ?? ''}` : '';
+  const over = ui.screen === 'game' && ui.game?.phase === 'gameover';
+  const key = o ? `${o.n}:${o.stage ?? ''}` : over ? 'over' : '';
   const html = o ? overlayHtml(o) : '';
   if (key !== ui.overlayKey) {
     ui.overlayKey = key;
+    if (o && !o.stage) play(OVERLAY_SOUND[o.kind]?.(o));
+    // Victoria o derrota suena cuando ya no queda ningún aviso delante.
+    if (key === 'over' && !ui.overHeard) {
+      ui.overHeard = true;
+      const g = ui.game;
+      const me = g.players.find((p) => p.id === g.me);
+      const won = g.winner === 'liberal' ? me?.role === 'liberal' : me?.role !== 'liberal';
+      play(won ? 'victory' : 'defeat', 0.2);
+    }
     clearTimeout(overlayTimer);
     if (o && AUTO_CLOSE[o.kind]) {
       const n = o.n;
@@ -459,6 +501,7 @@ function topbar() {
     <header class="topbar">
       <span class="room">Sala <b>${esc(ui.code)}</b></span>
       <span class="status ${esc(ui.status)}">${label}</span>
+      <button class="ghost small" data-a="mute" aria-pressed="${isMuted()}" title="${isMuted() ? 'Activar sonido' : 'Silenciar'}">${isMuted() ? '🔇' : '🔊'}</button>
       <button class="ghost small" data-a="leave">Salir</button>
     </header>`;
 }
@@ -785,6 +828,16 @@ function overlayHtml(o) {
         ${o.chaos ? '<p class="ov-text">El pueblo está en caos: se aplica la ley de arriba del mazo.</p>' : ''}
         ${pw}
         <button class="ghost small" data-a="dismiss">Cerrar</button>
+      </div>`;
+  }
+  if (o.kind === 'pres' || o.kind === 'chan') {
+    const title = o.kind === 'chan' ? 'Canciller elegido' : o.first ? 'Primer presidente' : 'Nuevo presidente';
+    return `
+      <div class="ov ov-medal ${o.kind}" role="status" aria-live="polite">
+        <span class="medal-face">${avatarFor(o.id)}</span>
+        <small class="medal-label">${title}</small>
+        <h2 class="ov-title">${nameOf(o.id)}${o.id === g.me ? ' <i>(tú)</i>' : ''}</h2>
+        <b class="placard ${o.kind}">${o.kind === 'chan' ? 'Canciller' : 'Presidente'}</b>
       </div>`;
   }
   if (o.kind === 'execute') {
