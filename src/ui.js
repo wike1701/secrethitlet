@@ -5,7 +5,7 @@
 import { HostRoom, randomId, cleanName } from './room.js';
 import { startHost, joinHost, makeCode, normalizeCode, isValidCode, CODE_LEN } from './net.js';
 import { POWER_NAMES, MIN_PLAYERS, MAX_PLAYERS } from './game.js';
-import { AVATAR_IDS, AVATAR_NAMES, avatarSvg, rolePortrait, isAvatar, ROLE_TITLES } from './avatars.js';
+import { AVATAR_IDS, AVATAR_NAMES, avatarSvg, rolePortrait, isAvatar, isPhoto, isValidAvatar, ROLE_TITLES } from './avatars.js';
 import { detectEvents } from './fx.js';
 import { play, unlock, isMuted, toggleMute } from './sound.js';
 
@@ -26,7 +26,7 @@ const session = store(() => sessionStorage);
 
 function initialAvatar() {
   const saved = local.get('sh-avatar');
-  return isAvatar(saved) ? saved : AVATAR_IDS[Math.floor(Math.random() * AVATAR_IDS.length)];
+  return isValidAvatar(saved) ? saved : AVATAR_IDS[Math.floor(Math.random() * AVATAR_IDS.length)];
 }
 
 const ui = {
@@ -119,10 +119,91 @@ const avatarOf = (id) => ui.room?.players.find((p) => p.id === id)?.avatar ?? id
 const avatarFor = (id, cls = '') => avatarSvg(avatarOf(id), cls);
 
 function avatarPicker() {
-  return `<div class="avatar-grid" role="group" aria-label="Elige tu avatar">${AVATAR_IDS.map((id) => {
+  // «Subir foto» abre el selector de archivos en el PC y la galería o la cámara en el móvil.
+  const upload = `<button class="av-pick av-upload" data-a="uploadPhoto" title="Subir una foto desde tu dispositivo"><span aria-hidden="true">+</span><small>Foto</small></button>`;
+  const photo = local.get('sh-photo');
+  const mine = isPhoto(photo)
+    ? `<button class="av-pick ${photo === ui.form.avatar ? 'sel' : ''}" data-a="pickPhoto" aria-pressed="${photo === ui.form.avatar}" title="Tu foto">${avatarSvg(photo)}</button>`
+    : '';
+  return `<div class="avatar-grid" role="group" aria-label="Elige tu avatar">${upload}${mine}${AVATAR_IDS.map((id) => {
     const sel = id === ui.form.avatar;
     return `<button class="av-pick ${sel ? 'sel' : ''}" data-a="pickAvatar" data-v="${id}" aria-pressed="${sel}" title="${AVATAR_NAMES[id]}">${avatarSvg(id)}</button>`;
   }).join('')}</div>`;
+}
+
+// Elige mi avatar (personaje o foto) y, si ya estoy en una sala, lo comunica.
+function setMyAvatar(a) {
+  if (!isValidAvatar(a)) return;
+  ui.form.avatar = a;
+  local.set('sh-avatar', a);
+  if (ui.screen !== 'home') {
+    ui.avatarOpen = false;
+    if (ui.isHost) room?.setAvatar(room.hostId, a);
+    else net?.send({ t: 'avatar', avatar: a });
+  }
+  render();
+}
+
+// Recorta la imagen en cuadrado centrado y la comprime hasta que quepa en un mensaje.
+async function photoFromFile(file) {
+  if (!file || !/^image\//.test(file.type || 'image/')) throw new Error('no es una imagen');
+  let src;
+  let url = null;
+  if (globalThis.createImageBitmap) {
+    try { src = await createImageBitmap(file); } catch { src = null; }
+  }
+  if (!src) {
+    url = URL.createObjectURL(file);
+    src = await new Promise((ok, ko) => { const im = new Image(); im.onload = () => ok(im); im.onerror = ko; im.src = url; });
+  }
+  try {
+    const w = src.width, h = src.height;
+    const side = Math.min(w, h);
+    if (!side) throw new Error('imagen vacía');
+    for (const size of [128, 96, 64]) {
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#2a2219'; // fondo para PNG con transparencia (JPEG no la admite)
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(src, (w - side) / 2, (h - side) / 2, side, side, 0, 0, size, size);
+      for (const q of [0.85, 0.7, 0.55]) {
+        const data = c.toDataURL('image/jpeg', q);
+        if (isPhoto(data)) return data;
+      }
+    }
+    throw new Error('demasiado grande');
+  } finally {
+    src.close?.();
+    if (url) URL.revokeObjectURL(url);
+  }
+}
+
+// El selector de archivos vive fuera de #app: un repintado con el diálogo abierto no lo destruye.
+let photoInput = null;
+function choosePhoto() {
+  if (!photoInput) {
+    photoInput = document.createElement('input');
+    photoInput.type = 'file';
+    photoInput.accept = 'image/*';
+    photoInput.hidden = true;
+    photoInput.addEventListener('change', () => onPhotoChosen(photoInput));
+    document.body.appendChild(photoInput);
+  }
+  photoInput.click();
+}
+
+async function onPhotoChosen(input) {
+  const file = input.files?.[0];
+  input.value = ''; // para poder volver a elegir el mismo archivo
+  if (!file) return;
+  try {
+    const data = await photoFromFile(file);
+    local.set('sh-photo', data);
+    setMyAvatar(data);
+  } catch {
+    toast('No se ha podido usar esa imagen');
+  }
 }
 function partyCardHtml(role) {
   const party = partyOf(role);
@@ -361,17 +442,9 @@ const actions = {
   veto: () => doAct({ type: 'chancellorDiscard', veto: true }),
   vetoResp: (el) => doAct({ type: 'vetoResponse', agree: el.dataset.v === '1' }),
   ack: () => doAct({ type: 'ack' }),
-  pickAvatar: (el) => {
-    if (!isAvatar(el.dataset.v)) return;
-    ui.form.avatar = el.dataset.v;
-    local.set('sh-avatar', ui.form.avatar);
-    if (ui.screen !== 'home') {
-      ui.avatarOpen = false;
-      if (ui.isHost) room?.setAvatar(room.hostId, ui.form.avatar);
-      else net?.send({ t: 'avatar', avatar: ui.form.avatar });
-    }
-    render();
-  },
+  pickAvatar: (el) => { if (isAvatar(el.dataset.v)) setMyAvatar(el.dataset.v); },
+  pickPhoto: () => setMyAvatar(local.get('sh-photo')),
+  uploadPhoto: () => choosePhoto(),
   toggleAvatars: () => { ui.avatarOpen = !ui.avatarOpen; render(); },
   openSeal: () => {
     const o = ui.overlays[0];

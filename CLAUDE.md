@@ -17,7 +17,9 @@ módulos ES nativos y PeerJS cargado desde CDN en `index.html`. Sin dependencias
    - Órdenes solo del anfitrión: `start`, `newGame`, `toLobby`, `kick`, `addBot` (solo en modo dev).
 3. `src/net.js`: PeerJS. Id del anfitrión = `secrethitlet-v1-<CÓDIGO>`. Latidos cada 4 s y timeout de 15 s.
 4. `src/avatars.js`: avatares de jugador (16 personajes de época) y retratos de rol, en SVG propio.
-   Los avatares viven en la sala (`room.players[].avatar`), no en `game.js`. Valida siempre con `isAvatar`.
+   Los avatares viven en la sala (`room.players[].avatar`), no en `game.js`. Un avatar es un id de personaje
+   o una foto propia (data URL JPEG/WebP/PNG en base64, ≤ `PHOTO_MAX`, comprimida en `ui.js` a 128 px).
+   Valida siempre con `isValidAvatar` (`isAvatar` solo para personajes, `isPhoto` solo para fotos).
 5. `src/ui.js`: repinta todo con `innerHTML` desde el objeto `ui`. Botones con `data-a="acción"`.
    Escapa SIEMPRE con `esc()` cualquier texto que venga de jugadores.
 

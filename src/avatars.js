@@ -75,7 +75,16 @@ export function defaultAvatar(seed = '') {
   return AVATAR_IDS[h % AVATAR_IDS.length];
 }
 
+// Foto subida por el jugador: data URL ya comprimida en su navegador (unos 128x128 px).
+// La regex estricta (solo base64) impide colar comillas o HTML en el atributo src.
+export const PHOTO_MAX = 24000;
+const PHOTO_RE = /^data:image\/(?:jpeg|webp|png);base64,[A-Za-z0-9+/]+={0,2}$/;
+export const isPhoto = (s) => typeof s === 'string' && s.length <= PHOTO_MAX && PHOTO_RE.test(s);
+// Un avatar es un personaje de la lista o una foto propia.
+export const isValidAvatar = (a) => isAvatar(a) || isPhoto(a);
+
 export function avatarSvg(id, cls = '') {
+  if (isPhoto(id)) return `<img class="avatar photo ${cls}" src="${id}" alt="Foto de perfil">`;
   const key = isAvatar(id) ? id : defaultAvatar(id);
   return `<svg class="avatar ${cls}" viewBox="0 0 64 64" role="img" aria-label="${AVATAR_NAMES[key]}">${AVATAR_ART[key]}</svg>`;
 }

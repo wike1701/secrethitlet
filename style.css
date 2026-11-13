@@ -407,6 +407,13 @@ footer { text-align: center; color: var(--muted); font-size: .8rem; margin-top: 
 .av-pick.sel { border-color: var(--brass-2); transform: scale(1.06); }
 .av-pick:hover:not(.sel) { border-color: #3a5e51; }
 .lobby-list .avatar-grid, .panel > .avatar-grid { margin-top: 12px; }
+img.avatar { object-fit: cover; }
+.av-upload {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  border: 2px dashed #3a5e51; color: var(--brass-2); line-height: 1;
+}
+.av-upload span { font-size: 22px; font-weight: 700; }
+.av-upload small { font-size: 10px; }
 .who-row { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .pick { justify-content: flex-start; text-align: left; padding: 8px 10px; }
 

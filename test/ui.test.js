@@ -62,6 +62,15 @@ test('partidas completas jugadas desde la interfaz del anfitrión', async () => 
   click('toggleAvatars');
   click('pickAvatar', { v: 'detective' });
   assert.match(html(), /aria-label="Detective"/, 'el anfitrión puede cambiar su avatar');
+  // Foto propia ya subida antes: aparece en el selector y se puede elegir.
+  const photo = 'data:image/jpeg;base64,' + 'A'.repeat(200);
+  localStorage.setItem('sh-photo', JSON.stringify(photo));
+  click('toggleAvatars');
+  assert.ok(has('uploadPhoto') && has('pickPhoto'), 'el selector ofrece subir foto y la foto guardada');
+  click('pickPhoto');
+  assert.ok(html().includes(`<img class="avatar photo sm" src="${photo}"`), 'el anfitrión puede usar su foto');
+  click('toggleAvatars');
+  click('pickAvatar', { v: 'detective' });
   assert.ok(html().includes('&lt;b&gt;Beto&lt;/b&gt;'), 'los nombres se escapan');
   assert.ok(!html().includes('<b>Beto</b>'));
 

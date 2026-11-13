@@ -2,7 +2,7 @@
 // recibe mensajes con handle(connId, msg) y responde con las funciones send/close que le pasen.
 import { createGame, act, viewFor, MIN_PLAYERS, MAX_PLAYERS } from './game.js';
 import { botAction } from './bots.js';
-import { AVATAR_IDS, isAvatar, defaultAvatar } from './avatars.js';
+import { AVATAR_IDS, isValidAvatar, defaultAvatar } from './avatars.js';
 
 const NAME_MAX = 20;
 const ID_CHARS = 'abcdefghijkmnpqrstuvwxyz23456789';
@@ -48,7 +48,7 @@ export class HostRoom {
       this.dev = !!saved.dev;
       this.hostId = saved.hostId;
       this.game = saved.game;
-      this.players = saved.players.map((p) => ({ ...p, avatar: isAvatar(p.avatar) ? p.avatar : defaultAvatar(p.id), connected: p.host || p.bot }));
+      this.players = saved.players.map((p) => ({ ...p, avatar: isValidAvatar(p.avatar) ? p.avatar : defaultAvatar(p.id), connected: p.host || p.bot }));
     } else {
       this.code = o.code;
       this.dev = !!o.dev;
@@ -112,7 +112,7 @@ export class HostRoom {
   // Cambia el avatar de un jugador (se puede en la sala de espera y durante la partida).
   setAvatar(pid, avatar) {
     const p = this._player(pid);
-    if (!p || !isAvatar(avatar)) return this._toPlayer(pid, err('Avatar no válido'));
+    if (!p || !isValidAvatar(avatar)) return this._toPlayer(pid, err('Avatar no válido'));
     if (p.avatar === avatar) return;
     p.avatar = avatar;
     this._changed();
@@ -161,7 +161,7 @@ export class HostRoom {
       nm = `${base.slice(0, NAME_MAX - 3)} ${i}`;
     }
     const p = { id: randomId(10), token: token ?? null, name: nm, connected: true, bot: false, host: false, ...extra };
-    if (!isAvatar(p.avatar)) p.avatar = this._freeAvatar(p.id);
+    if (!isValidAvatar(p.avatar)) p.avatar = this._freeAvatar(p.id);
     this.players.push(p);
     return p;
   }
@@ -191,7 +191,7 @@ export class HostRoom {
       if (this.players.length >= MAX_PLAYERS) return this._reject(connId, 'La sala está llena');
       p = this._addPlayer(msg.name, token, { avatar: msg.avatar });
     }
-    if (isAvatar(msg.avatar)) p.avatar = msg.avatar;
+    if (isValidAvatar(msg.avatar)) p.avatar = msg.avatar;
     p.connected = true;
     this.conns.set(connId, p.id);
     this.sendFn(connId, { t: 'welcome', you: p.id, code: this.code });

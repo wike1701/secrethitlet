@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HostRoom } from '../src/room.js';
 import { botAction } from '../src/bots.js';
-import { isAvatar } from '../src/avatars.js';
+import { isAvatar, isPhoto, avatarSvg, PHOTO_MAX } from '../src/avatars.js';
 
 function setup({ dev = true, seed = 1 } = {}) {
   const inbox = new Map();
@@ -167,4 +167,36 @@ test('los bots reciben avatares distintos y las partidas guardadas sin avatar se
   for (const p of saved.players) delete p.avatar;
   const r2 = new HostRoom(e.opts, saved);
   assert.ok(r2.players.every((p) => isAvatar(p.avatar)));
+});
+
+const PHOTO = 'data:image/jpeg;base64,' + 'A'.repeat(400) + '==';
+
+test('fotos de avatar: solo data URL de imagen en base64 y de tamaño limitado', () => {
+  assert.ok(isPhoto(PHOTO));
+  assert.ok(isPhoto('data:image/webp;base64,QUJD'));
+  assert.ok(!isPhoto('data:image/svg+xml;base64,QUJD'), 'SVG no: podría llevar scripts');
+  assert.ok(!isPhoto('data:image/jpeg;base64,QUJD"><script>alert(1)</script>'));
+  assert.ok(!isPhoto('https://ejemplo.com/foto.jpg'));
+  assert.ok(!isPhoto('data:image/jpeg;base64,' + 'A'.repeat(PHOTO_MAX)));
+  assert.ok(!isPhoto(null) && !isPhoto(42));
+  assert.match(avatarSvg(PHOTO, 'sm'), /^<img class="avatar photo sm" src="data:image\/jpeg;base64,A+==" alt="Foto de perfil">$/);
+  assert.match(avatarSvg('detective'), /^<svg/);
+});
+
+test('fotos de avatar: se aceptan al unirse y al cambiar, se rechazan las inválidas y se guardan', () => {
+  const e = setup();
+  e.room.handle('c1', { t: 'hello', name: 'Beto', token: 'token-beto-1', avatar: PHOTO });
+  const beto = () => e.last('c1').room.players.find((p) => p.name === 'Beto');
+  assert.equal(beto().avatar, PHOTO);
+  const big = 'data:image/jpeg;base64,' + 'B'.repeat(PHOTO_MAX);
+  e.room.handle('c1', { t: 'avatar', avatar: big });
+  assert.equal(beto().avatar, PHOTO, 'una foto demasiado grande no sustituye a la anterior');
+  assert.equal(e.errors('c1').at(-1).message, 'Avatar no válido');
+  e.room.handle('c1', { t: 'avatar', avatar: 'poeta' });
+  assert.equal(beto().avatar, 'poeta');
+  const other = 'data:image/png;base64,' + 'C'.repeat(100);
+  e.room.handle('c1', { t: 'avatar', avatar: other });
+  assert.equal(beto().avatar, other);
+  const r2 = new HostRoom(e.opts, JSON.parse(JSON.stringify(e.room.serialize())));
+  assert.equal(r2.players.find((p) => p.name === 'Beto').avatar, other, 'la foto sobrevive a reanudar la partida');
 });
